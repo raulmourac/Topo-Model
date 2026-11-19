@@ -450,7 +450,7 @@ function syncUI(){
  if(selE>=0){const a=p.v[selE],b=p.v[(selE+1)%p.v.length];$('#et').textContent=`Aresta ${selE+1}–${(selE+1)%p.v.length+1} de P${sel+1}`;setIn('el',f(Math.hypot(b[0]-a[0],b[1]-a[1]),2))}
 }
 $('#chips').onclick=e=>{const i=e.target.dataset.i;if(i!==undefined){sel=+i;selV=selE=-1;syncUI();update()}};
-const newP=(x,y,w,l)=>({cx:x,cy:y,rot:0,o:[0,0],v:rect(w,l),z:Math.round(zEx(x,y)*10)/10,s:1,az:90,form:'plano',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false});
+const newP=(x,y,w,l)=>({cx:x,cy:y,rot:0,o:[0,0],v:rect(w,l),z:Math.round(zEx(x,y)*10)/10,s:1,az:90,form:'nivel',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false});
 $('#add').onclick=()=>{const n=P.length,hm=SITE?SITE.home:[S/2,S/2],x=clamp(hm[0]+n*6,S*.2,S*.8),y=clamp(hm[1]+n*5,S*.2,S*.8);P.push(newP(x,y,14,12));sel=P.length-1;selV=selE=-1;syncUI();update()};
 $('#del').onclick=()=>{P.splice(sel,1);sel=Math.max(0,Math.min(sel,P.length-1));selV=selE=-1;syncUI();update()};
 $('#bal').onclick=()=>{const p=P[sel];if(!p)return;let lo=zr[0]-3,hi=zr[1]+3;for(let n=0;n<30;n++){p.z=(lo+hi)/2;grade();const v=vols();if(v.cut>v.fill)lo=p.z;else hi=p.z}p.z=Math.round(p.z*100)/100;syncUI();update()};
@@ -458,7 +458,7 @@ function setDomain(s,n,site){
  S=s;N=n;H=S/(N-1);SITE=site;NORTH=site?site.north:0;alloc();
  pv.k=1;pv.x=pv.y=S/2;sv.k=1;sv.c=.5;isoK=1;isoPan=[0,0];
  const a=site?site.A:[S*.08,S/2],b=site?site.B:[S*.92,S/2];A.x=a[0];A.y=a[1];B.x=b[0];B.y=b[1];
- const hm=site?site.home:[S/2,S/2];P=[{cx:hm[0],cy:hm[1],rot:0,o:[0,0],v:rect(site?24:18,site?18:14),z:0,s:1,az:90,form:'plano',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false}];sel=0;selV=selE=-1;
+ const hm=site?site.home:[S/2,S/2];P=[{cx:hm[0],cy:hm[1],rot:0,o:[0,0],v:rect(site?24:18,site?18:14),z:0,s:1,az:90,form:'nivel',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false}];sel=0;selV=selE=-1;
  if(site){const raw=atob(site.z),b8=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)b8[i]=raw.charCodeAt(i);const q=new Int16Array(b8.buffer);for(let k=0;k<N*N;k++)ex[k]=site.z0+q[k]/100;
   for(let j=0;j<N;j++)for(let i=0;i<N;i++){const x=i*H,y=j*H;siteM[j*N+i]=pip(site.water,x,y)?2:pip(site.road,x,y)?1:pip(site.praca,x,y)?3:0}}
 }
@@ -721,23 +721,28 @@ function drawIso(cv=iso){
  for(const L of prC)for(const ln of L.lines)for(let i=1;i<ln.length;i++)put(ln[i-1][0],ln[i-1][1],L.z,ln[i][0],ln[i][1],L.z,C.prop,L.k%5===0?1.5:.7);
  {const L=Math.hypot(B.x-A.x,B.y-A.y),n=Math.max(2,Math.ceil(L/.5));for(let k=0;k<n;k++){const x1=A.x+(B.x-A.x)*k/n,y1=A.y+(B.y-A.y)*k/n,x2=A.x+(B.x-A.x)*(k+1)/n,y2=A.y+(B.y-A.y)*(k+1)/n;put(x1,y1,bil(pr,x1,y1)+.05,x2,y2,bil(pr,x2,y2)+.05,'rgba(43,89,195,.35)',.7)}}
  // célula cortada pela borda do platô: divide-se pela aresta, para borda e muro saírem retos
- function splitCell(p,x0,y0){
-  const pid=P.indexOf(p)+1,node=(x,y)=>clamp(Math.round(y/H),0,N-1)*N+clamp(Math.round(x/H),0,N-1);
-  const sq=[[x0,y0],[x0+cs,y0],[x0+cs,y0+cs],[x0,y0+cs]],[u,v]=toL(p,x0+cs/2,y0+cs/2),e=near(p.v,u,v)[3],A_=toW(p,...p.v[e]),B_=toW(p,...p.v[(e+1)%p.v.length]),sg=sarea(p.v)>0?1:-1;
-  const sd=q=>((B_[0]-A_[0])*(q[1]-A_[1])-(B_[1]-A_[1])*(q[0]-A_[0]))*sg,ins=[],out=[];let other=0;
-  // cantos usam a cota exata da malha; na linha de corte, o lado de dentro é o platô e o de fora continua o talude, ou o vizinho/muro
-  for(let n=0;n<4;n++){const P1=sq[n],P2=sq[(n+1)%4],f1=sd(P1),f2=sd(P2),k1=node(...P1);
-   if(f1>=0)ins.push([P1[0],P1[1],refW(p,P1[0],P1[1])]);else{out.push([P1[0],P1[1],pr[k1]]);if(mask[k1])other=mask[k1]}
-   if((f1>=0)!==(f2>=0)){const t=f1/(f1-f2),X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],ko=node(...(f1<0?P1:P2)),zi=refW(p,...X);
-    ins.push([X[0],X[1],zi]);out.push([X[0],X[1],!p.wall&&!mask[ko]?zi:pr[ko]])}}
-  for(const[poly,inside]of[[out,false],[ins,true]]){
+ // célula cruzada por bordas de platô: divide-se por região (cada platô ou terreno) com o ponto exato da borda
+ function splitCell(x0,y0){
+  const node=(x,y)=>clamp(Math.round(y/H),0,N-1)*N+clamp(Math.round(x/H),0,N-1);
+  const sq=[[x0,y0],[x0+cs,y0],[x0+cs,y0+cs],[x0,y0+cs]],parts=new Map(),add=(l,pt)=>{if(!parts.has(l))parts.set(l,[]);parts.get(l).push(pt)};
+  for(let n=0;n<4;n++){const P1=sq[n],P2=sq[(n+1)%4],k1=node(...P1),k2=node(...P2),m1=mask[k1],m2=mask[k2];
+   add(m1,[P1[0],P1[1],pr[k1]]);
+   if(m1!==m2){const lb=Math.max(m1,m2),q=P[lb-1],in1=m1===lb;let lo=0,hi=1;
+    for(let it=0;it<14;it++){const m=(lo+hi)/2;(pip(q.v,...toL(q,P1[0]+(P2[0]-P1[0])*m,P1[1]+(P2[1]-P1[1])*m))===in1)?lo=m:hi=m}
+    const t=(lo+hi)/2,X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],zi=refW(q,...X),zo=q.wall?pr[in1?k2:k1]:zi;
+    add(m1,[X[0],X[1],m1===lb?zi:zo]);add(m2,[X[0],X[1],m2===lb?zi:zo])}}
+  // três ou mais regiões: todas se encontram num ponto central, para não sobrar buraco no meio da célula
+  let hub=null;if(parts.size>2){const cr=[...parts.values()].flat().filter(q=>!sq.some(c=>c[0]===q[0]&&c[1]===q[1]));hub=[x0+cs/2,y0+cs/2,cr.reduce((s,q)=>s+q[2],0)/(cr.length||1)]}
+  for(const[lab,poly0]of parts){
+   let poly=poly0;
+   if(hub){const ang=q=>Math.atan2(q[1]-hub[1],q[0]-hub[0]);poly=[...poly0].sort((a,b)=>ang(a)-ang(b));let gi=0,gm=-1;for(let i=0;i<poly.length;i++){const a1=ang(poly[i]),a2=ang(poly[(i+1)%poly.length])+(i===poly.length-1?2*Math.PI:0),gp=a2-a1;if(gp>gm){gm=gp;gi=i}}poly=poly.slice(gi+1).concat(poly.slice(0,gi+1));poly.push(hub)}
    if(poly.length<3)continue;
    const pts=poly.map(([x,y,z])=>[clamp(x,0,S),clamp(y,0,S),z]);
    const[o,q1,q2]=pts,ux=q1[0]-o[0],uy=q1[1]-o[1],uz=(q1[2]-o[2])*ve,wx=q2[0]-o[0],wy=q2[1]-o[1],wz=(q2[2]-o[2])*ve;
    let nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx;if(nz<0){nx=-nx;ny=-ny;nz=-nz}const nl=Math.hypot(nx,ny,nz)||1;
    const lam=Math.max(0,(nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2])/nl);
    const mx=pts.reduce((s,q)=>s+q[0],0)/pts.length,my=pts.reduce((s,q)=>s+q[1],0)/pts.length,mz=pts.reduce((s,q)=>s+q[2],0)/pts.length,dz=bil(ex,mx,my)-mz;
-   let col=inside||other?pave:surf;if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
+   let col=lab?pave:surf;if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
    c.fillStyle=c.strokeStyle=rgb(col,.5+.6*lam);c.lineWidth=1;c.beginPath();pts.forEach((q,n)=>{const r=proj(...q);n?c.lineTo(r[0],r[1]):c.moveTo(r[0],r[1])});c.closePath();c.fill();c.stroke();
   }
  }
@@ -748,7 +753,7 @@ function drawIso(cv=iso){
   const gx=((pr[k10]+pr[k11])-(pr[k00]+pr[k01]))/(2*cs)*ve,gy=((pr[k01]+pr[k11])-(pr[k00]+pr[k10]))/(2*cs)*ve,nl=Math.hypot(gx,gy,1);
   const lam=Math.max(0,(-gx*LIGHT[0]-gy*LIGHT[1]+LIGHT[2])/nl);
   const m4=[mask[k00],mask[k10],mask[k11],mask[k01]],pid=m4.find(x=>x);
-  if(pid&&m4.some(x=>x!==pid))splitCell(P[pid-1],i*cs,j*cs);
+  if(m4.some(x=>x!==m4[0]))splitCell(i*cs,j*cs);
   else{
   let col=mask[kc]?pave:surf;if(SITE&&!mask[kc]){const ks=[k00,k10,k01,k11,kc,kc];let r=0,w=0;for(const q of ks){if(siteM[q]===1)r++;else if(siteM[q]===2)w++}if(w)col=mix(col,WATER,w/6);if(r)col=mix(col,ROAD,r/6)}const dz=ex[kc]-pr[kc];
   if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
@@ -971,7 +976,7 @@ function layout(){
 }
 const ro=new ResizeObserver(layout);['#planCv','#isoCv','#secCv'].forEach(i=>ro.observe($(i)));
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
-P=[{cx:25,cy:25,rot:0,o:[0,0],v:rect(18,14),z:0,s:1,az:90,form:'plano',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false}];
+P=[{cx:25,cy:25,rot:0,o:[0,0],v:rect(18,14),z:0,s:1,az:90,form:'nivel',uso:'livre',rev:'nenhum',nc:1.5,nf:1.5,wall:false}];
 setTheme(tm);setMode('estudo');setT('slope');layout();
 </script>
 </body>
