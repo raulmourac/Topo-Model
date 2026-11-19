@@ -337,24 +337,25 @@ function snapLine(ln,L){
 
 /* ---------- terraplenagem ---------- */
 function grade(){
- // 1) onde fica cada platô (o desenhado depois prevalece na sobreposição)
- // 2) taludes só no terreno livre: um talude nunca escava nem aterra o piso de outro platô
- // 3) piso de cada platô na sua cota
+ // 1) onde fica cada platô (o desenhado depois prevalece na sobreposição) e o piso na sua cota
+ // 2) taludes: no terreno livre e sobre o piso de platôs desenhados antes, como na sequência de obra
+ // 3) entre dois platôs próximos, rampa contínua em vez de vala
  pr.set(ex);mask.fill(0);
  const each=fn=>P.forEach((p,pi)=>{const c=Math.cos(p.rot*D),s=Math.sin(p.rot*D);for(let j=0;j<N;j++)for(let i=0;i<N;i++){const dx=i*H-p.cx,dy=j*H-p.cy;fn(p,pi,j*N+i,dx*c+dy*s,-dx*s+dy*c)}});
  each((p,pi,k,u,v)=>{if(pip(p.v,u,v))mask[k]=pi+1});
+ each((p,pi,k,u,v)=>{if(mask[k]===pi+1)pr[k]=refL(p,u,v)});
  // entre dois platôs próximos o terreno vira uma rampa contínua de uma borda à outra, sem cavar uma vala entre eles
- const PP=P.filter(p=>!p.wall).map(p=>({p,c:Math.cos(p.rot*D),s:Math.sin(p.rot*D)}));
- for(let j=0;j<N;j++)for(let i=0;i<N;i++){const k=j*N+i;if(mask[k]||!PP.length)continue;const x=i*H,y=j*H,L=[];let z=pr[k];
-  for(const o of PP){const p=o.p,dx=x-p.cx,dy=y-p.cy,[qu,qv,d]=near(p.v,dx*o.c+dy*o.s,-dx*o.s+dy*o.c),r=refL(p,qu,qv);L.push({p,d,r,qx:p.cx+qu*o.c-qv*o.s-x,qy:p.cy+qu*o.s+qv*o.c-y});z=z>r?Math.min(z,r+d/p.nc):Math.max(z,r-d/p.nf)}
-  if(L.length>1){L.sort((a,b)=>a.d-b.d);const a=L[0],b=L.slice(1).find(q=>q.qx*a.qx+q.qy*a.qy<0);
+ const PP=P.map((p,pi)=>({p,pi:pi+1,c:Math.cos(p.rot*D),s:Math.sin(p.rot*D)})).filter(o=>!o.p.wall);
+ for(let j=0;j<N;j++)for(let i=0;i<N;i++){const k=j*N+i,mk=mask[k];if(!PP.length)continue;const x=i*H,y=j*H,L=[];let z=pr[k];
+  for(const o of PP){if(mk&&o.pi<=mk)continue;const p=o.p,dx=x-p.cx,dy=y-p.cy,[qu,qv,d]=near(p.v,dx*o.c+dy*o.s,-dx*o.s+dy*o.c),r=refL(p,qu,qv);L.push({p,d,r,qx:p.cx+qu*o.c-qv*o.s-x,qy:p.cy+qu*o.s+qv*o.c-y});z=z>r?Math.min(z,r+d/p.nc):Math.max(z,r-d/p.nf)}
+  if(!mk&&L.length>1){L.sort((a,b)=>a.d-b.d);const a=L[0],b=L.slice(1).find(q=>q.qx*a.qx+q.qy*a.qy<0);
    if(b&&a.d+b.d<=Math.abs(a.r-b.r)*Math.max(a.p.nc,a.p.nf,b.p.nc,b.p.nf)+3)z=(a.r*b.d+b.r*a.d)/(a.d+b.d||1)}
   pr[k]=z}
- each((p,pi,k,u,v)=>{if(mask[k]===pi+1)pr[k]=refL(p,u,v)});
 }
 function vols(){let c=0,fl=0;for(let k=0;k<N*N;k++){const d=ex[k]-pr[k];if(d>0)c+=d;else fl-=d}return{cut:c*H*H,fill:fl*H*H}}
 function zOut(x,y,nx,ny){const d=H*1.3,X=clamp(x+nx*d,0,S),Y=clamp(y+ny*d,0,S);return bil(pr,X,Y)}
 function wallSegs(p){
+ if(!p.wall)return{out:[],hm:0};
  const q=p.v.map(([u,v])=>toW(p,u,v)),out=[],pi=P.indexOf(p)+1,sg=sarea(p.v)>0?1:-1;let hm=0;q.push(q[0]);
  for(let e=0;e<q.length-1;e++){const a=q[e],b=q[e+1],len=Math.hypot(b[0]-a[0],b[1]-a[1])||1,nx=(b[1]-a[1])/len*sg,ny=-(b[0]-a[0])/len*sg,n=Math.max(1,Math.ceil(len/.5));
   for(let k=0;k<n;k++){const u0=k/n,u1=(k+1)/n,um=(u0+u1)/2,mx=a[0]+(b[0]-a[0])*um,my=a[1]+(b[1]-a[1])*um;
@@ -362,7 +363,6 @@ function wallSegs(p){
    const ii=clamp(Math.round((mx-nx*H*.6)/H),0,N-1),jj=clamp(Math.round((my-ny*H*.6)/H),0,N-1),mk=mask[jj*N+ii];
    if(mk&&mk!==pi)continue;
    const zo=zOut(mx,my,nx,ny),rr=refW(p,mx,my),h=Math.abs(zo-rr);
-   if(!p.wall){const io=clamp(Math.round((mx+nx*H*.6)/H),0,N-1),jo=clamp(Math.round((my+ny*H*.6)/H),0,N-1),mo=mask[jo*N+io];if(!mo||mo===pi)continue}
    hm=Math.max(hm,h);
    if(h>.1){const x0=a[0]+(b[0]-a[0])*u0,y0=a[1]+(b[1]-a[1])*u0,x1=a[0]+(b[0]-a[0])*u1,y1=a[1]+(b[1]-a[1])*u1;out.push([x0,y0,x1,y1,zOut(x0,y0,nx,ny),zOut(x1,y1,nx,ny)])}}}
  return{out,hm};
@@ -420,7 +420,7 @@ $('#vrect').onclick=()=>{const p=P[sel];if(!p)return;const b=bbox(p);recenter(p)
 function wallinfo(){
  const p=P[sel],el=$('#winfo');if(!p){el.textContent='';return}
  const hm=wallSegs(p).hm;
- if(!p.wall){el.textContent=hm>.1?`Este platô encosta em outro platô sem espaço para talude: o desnível de até ${f(hm)} m aparece como muro e precisa ser resolvido com muro ou escada.`:'';return}
+ if(!p.wall){el.textContent='';return}
  el.textContent=hm>.1?`Altura máxima do muro: ${f(hm)} m. Em muro de gravidade, a base mede cerca de 40 a 50 % da altura (${f(.4*hm,1)} a ${f(.5*hm,1)} m).${hm>3?' Acima de 3 m peça projeto estrutural.':''}`:'Não há diferença de nível nas bordas, então o muro não é necessário aqui.';
 }
 function slopeinfo(){
@@ -735,7 +735,7 @@ function drawIso(cv=iso){
    add(m1,[P1[0],P1[1],pr[k1]]);
    if(m1!==m2){const lb=Math.max(m1,m2),q=P[lb-1],in1=m1===lb;let lo=0,hi=1;
     for(let it=0;it<14;it++){const m=(lo+hi)/2;(pip(q.v,...toL(q,P1[0]+(P2[0]-P1[0])*m,P1[1]+(P2[1]-P1[1])*m))===in1)?lo=m:hi=m}
-    const t=(lo+hi)/2,X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],zi=refW(q,...X),lo2=in1?m2:m1,zo=lo2?refW(P[lo2-1],...X):q.wall?pr[in1?k2:k1]:zi;
+    const t=(lo+hi)/2,X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],zi=refW(q,...X),lo2=in1?m2:m1,zo=q.wall?(lo2?refW(P[lo2-1],...X):pr[in1?k2:k1]):zi;
     add(m1,[X[0],X[1],m1===lb?zi:zo]);add(m2,[X[0],X[1],m2===lb?zi:zo])}}
   // três ou mais regiões: todas se encontram num ponto central, para não sobrar buraco no meio da célula
   let hub=null;if(parts.size>2){const cr=[...parts.values()].flat().filter(q=>!sq.some(c=>c[0]===q[0]&&c[1]===q[1]));hub=[x0+cs/2,y0+cs/2,cr.reduce((s,q)=>s+q[2],0)/(cr.length||1)]}
