@@ -706,35 +706,39 @@ function drawIso(cv=iso){
  const nv=M+1,GX=new Float32Array(nv*nv),GY=new Float32Array(nv*nv);
  for(let j=0;j<nv;j++)for(let i=0;i<nv;i++){const k=j*g*N+i*g,q=proj(i*cs,j*cs,pr[k]);GX[j*nv+i]=q[0];GY[j*nv+i]=q[1]}
  const ROAD=[150,150,152],WATER=[86,140,214],surf=hex(C.surf),pave=hex(C.pave),soil=hex(C.soil),YEL=[240,194,59],RED=[217,83,74],cf=$('#cf').checked;
- const polys=[];
+ const polys=[],dep=new Float32Array(M*M).fill(-1e9);
  for(let j=0;j<M;j++)for(let i=0;i<M;i++){
   const a=j*nv+i,xs=[GX[a],GX[a+1],GX[a+nv],GX[a+nv+1]],ys=[GY[a],GY[a+1],GY[a+nv],GY[a+nv+1]];
   if(Math.max(...xs)<-2||Math.min(...xs)>W+2||Math.max(...ys)<-2||Math.min(...ys)>Hh+2)continue;
-  const k=(j*g+g/2|0)*N+(i*g+g/2|0),q=proj(i*cs+cs/2,j*cs+cs/2,pr[k]);polys.push({d:q[2],t:0,i,j,k});
+  const k=(j*g+g/2|0)*N+(i*g+g/2|0),q=proj(i*cs+cs/2,j*cs+cs/2,pr[k]);polys.push({d:q[2],t:0,i,j,k});dep[j*M+i]=q[2];
  }
  for(const p of P)if(p.wall)for(const s of wallSegs(p).out){const a=[s[0],s[1]],b=[s[2],s[3]],ra=refW(p,...a),rb=refW(p,...b),ea=s[4],eb=s[5],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,q=proj(mx,my,(ra+rb+ea+eb)/4);
   const nx=b[1]-a[1],ny=-(b[0]-a[0]),nl=Math.hypot(nx,ny)||1;polys.push({d:q[2]-.3,t:1,pts:[proj(...a,Math.max(ra,ea)),proj(...b,Math.max(rb,eb)),proj(...b,Math.min(rb,eb)),proj(...a,Math.min(ra,ea))],sh:.6+.35*Math.abs(nx/nl*LIGHT[0]+ny/nl*LIGHT[1])})}
  polys.sort((a,b)=>b.d-a.d);
- const bk=new Map(),put=(x1,y1,z1,x2,y2,z2,col,w)=>{const ci=clamp(Math.floor((x1+x2)/2/cs),0,M-1),cj=clamp(Math.floor((y1+y2)/2/cs),0,M-1),key=cj*M+ci;if(!bk.has(key))bk.set(key,[]);bk.get(key).push([proj(x1,y1,z1),proj(x2,y2,z2),col,w])};
+ const bk=new Map(),put=(x1,y1,z1,x2,y2,z2,col,w)=>{const ci=clamp(Math.floor((x1+x2)/2/cs),0,M-1),cj=clamp(Math.floor((y1+y2)/2/cs),0,M-1);let key=cj*M+ci,bd=1e18;
+  // a linha vai junto da célula vizinha mais próxima do observador, para não ser coberta pelas vizinhas pintadas depois
+  for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){const a=ci+di,b=cj+dj;if(a<0||b<0||a>=M||b>=M)continue;const d=dep[b*M+a];if(d>-1e8&&d<bd){bd=d;key=b*M+a}}if(!bk.has(key))bk.set(key,[]);bk.get(key).push([proj(x1,y1,z1),proj(x2,y2,z2),col,w])};
  for(const L of prC)for(const ln of L.lines)for(let i=1;i<ln.length;i++)put(ln[i-1][0],ln[i-1][1],L.z,ln[i][0],ln[i][1],L.z,C.prop,L.k%5===0?1.5:.7);
  {const L=Math.hypot(B.x-A.x,B.y-A.y),n=Math.max(2,Math.ceil(L/.5));for(let k=0;k<n;k++){const x1=A.x+(B.x-A.x)*k/n,y1=A.y+(B.y-A.y)*k/n,x2=A.x+(B.x-A.x)*(k+1)/n,y2=A.y+(B.y-A.y)*(k+1)/n;put(x1,y1,bil(pr,x1,y1)+.05,x2,y2,bil(pr,x2,y2)+.05,'rgba(43,89,195,.35)',.7)}}
  // célula cortada pela borda do platô: divide-se pela aresta, para borda e muro saírem retos
  function splitCell(p,x0,y0){
-  const pid=P.indexOf(p)+1,i0=Math.round(x0/H),j0=Math.round(y0/H),nodes=[];
-  for(let dj=-1;dj<=g+1;dj++)for(let di=-1;di<=g+1;di++){const i=clamp(i0+di,0,N-1),j=clamp(j0+dj,0,N-1),k=j*N+i;if(mask[k]!==pid)nodes.push([i*H,j*H,pr[k]])}
-  const outZ=(x,y)=>{if(!nodes.length)return zEx(x,y);let sw=0,sz=0;for(const[nx,ny,nz]of nodes){const w=1/((nx-x)**2+(ny-y)**2+.05);sw+=w;sz+=w*nz}return sz/sw};
+  const pid=P.indexOf(p)+1,node=(x,y)=>clamp(Math.round(y/H),0,N-1)*N+clamp(Math.round(x/H),0,N-1);
   const sq=[[x0,y0],[x0+cs,y0],[x0+cs,y0+cs],[x0,y0+cs]],[u,v]=toL(p,x0+cs/2,y0+cs/2),e=near(p.v,u,v)[3],A_=toW(p,...p.v[e]),B_=toW(p,...p.v[(e+1)%p.v.length]),sg=sarea(p.v)>0?1:-1;
-  const sd=q=>((B_[0]-A_[0])*(q[1]-A_[1])-(B_[1]-A_[1])*(q[0]-A_[0]))*sg,ins=[],out=[];
-  for(let n=0;n<4;n++){const P1=sq[n],P2=sq[(n+1)%4],f1=sd(P1),f2=sd(P2);(f1>=0?ins:out).push(P1);if((f1>=0)!==(f2>=0)){const t=f1/(f1-f2),X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t];ins.push(X);out.push(X)}}
+  const sd=q=>((B_[0]-A_[0])*(q[1]-A_[1])-(B_[1]-A_[1])*(q[0]-A_[0]))*sg,ins=[],out=[];let other=0;
+  // cantos usam a cota exata da malha; na linha de corte, o lado de dentro é o platô e o de fora continua o talude, ou o vizinho/muro
+  for(let n=0;n<4;n++){const P1=sq[n],P2=sq[(n+1)%4],f1=sd(P1),f2=sd(P2),k1=node(...P1);
+   if(f1>=0)ins.push([P1[0],P1[1],refW(p,P1[0],P1[1])]);else{out.push([P1[0],P1[1],pr[k1]]);if(mask[k1])other=mask[k1]}
+   if((f1>=0)!==(f2>=0)){const t=f1/(f1-f2),X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],ko=node(...(f1<0?P1:P2)),zi=refW(p,...X);
+    ins.push([X[0],X[1],zi]);out.push([X[0],X[1],!p.wall&&!mask[ko]?zi:pr[ko]])}}
   for(const[poly,inside]of[[out,false],[ins,true]]){
    if(poly.length<3)continue;
-   const pts=poly.map(([x,y])=>{const xx=clamp(x,0,S),yy=clamp(y,0,S);return[xx,yy,inside?refW(p,xx,yy):outZ(xx,yy)]});
+   const pts=poly.map(([x,y,z])=>[clamp(x,0,S),clamp(y,0,S),z]);
    const[o,q1,q2]=pts,ux=q1[0]-o[0],uy=q1[1]-o[1],uz=(q1[2]-o[2])*ve,wx=q2[0]-o[0],wy=q2[1]-o[1],wz=(q2[2]-o[2])*ve;
    let nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx;if(nz<0){nx=-nx;ny=-ny;nz=-nz}const nl=Math.hypot(nx,ny,nz)||1;
    const lam=Math.max(0,(nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2])/nl);
    const mx=pts.reduce((s,q)=>s+q[0],0)/pts.length,my=pts.reduce((s,q)=>s+q[1],0)/pts.length,mz=pts.reduce((s,q)=>s+q[2],0)/pts.length,dz=bil(ex,mx,my)-mz;
-   let col=inside?pave:surf;if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
-   c.fillStyle=c.strokeStyle=rgb(col,.5+.6*lam);c.lineWidth=.5;c.beginPath();pts.forEach((q,n)=>{const r=proj(...q);n?c.lineTo(r[0],r[1]):c.moveTo(r[0],r[1])});c.closePath();c.fill();c.stroke();
+   let col=inside||other?pave:surf;if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
+   c.fillStyle=c.strokeStyle=rgb(col,.5+.6*lam);c.lineWidth=1;c.beginPath();pts.forEach((q,n)=>{const r=proj(...q);n?c.lineTo(r[0],r[1]):c.moveTo(r[0],r[1])});c.closePath();c.fill();c.stroke();
   }
  }
  c.lineJoin='round';
@@ -748,7 +752,7 @@ function drawIso(cv=iso){
   else{
   let col=mask[kc]?pave:surf;if(SITE&&!mask[kc]){const ks=[k00,k10,k01,k11,kc,kc];let r=0,w=0;for(const q of ks){if(siteM[q]===1)r++;else if(siteM[q]===2)w++}if(w)col=mix(col,WATER,w/6);if(r)col=mix(col,ROAD,r/6)}const dz=ex[kc]-pr[kc];
   if(cf&&Math.abs(dz)>.02)col=mix(col,dz>0?YEL:RED,Math.min(.72,Math.abs(dz)*.45));
-  c.fillStyle=c.strokeStyle=rgb(col,.5+.6*lam);c.lineWidth=.5;
+  c.fillStyle=c.strokeStyle=rgb(col,.5+.6*lam);c.lineWidth=1;
   c.beginPath();c.moveTo(GX[a],GY[a]);c.lineTo(GX[b],GY[b]);c.lineTo(GX[cc],GY[cc]);c.lineTo(GX[dd],GY[dd]);c.closePath();c.fill();c.stroke();}
   const segs=bk.get(j*M+i);if(segs)for(const[p1,p2,colr,w]of segs){c.strokeStyle=colr;c.lineWidth=w;c.beginPath();c.moveTo(p1[0],p1[1]);c.lineTo(p2[0],p2[1]);c.stroke()}
  }
