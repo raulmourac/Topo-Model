@@ -337,17 +337,20 @@ function snapLine(ln,L){
 
 /* ---------- terraplenagem ---------- */
 function grade(){
+ // 1) onde fica cada platô (o desenhado depois prevalece na sobreposição)
+ // 2) taludes só no terreno livre: um talude nunca escava nem aterra o piso de outro platô
+ // 3) piso de cada platô na sua cota
  pr.set(ex);mask.fill(0);
- P.forEach((p,pi)=>{
-  const c=Math.cos(p.rot*D),s=Math.sin(p.rot*D),V=p.v;
-  for(let j=0;j<N;j++)for(let i=0;i<N;i++){
-   const dx=i*H-p.cx,dy=j*H-p.cy,u=dx*c+dy*s,v=-dx*s+dy*c,k=j*N+i;
-   if(pip(V,u,v)){pr[k]=refL(p,u,v);mask[k]=pi+1;continue}
-   if(p.wall)continue;
-   const[qu,qv,d]=near(V,u,v),r=refL(p,qu,qv),z=pr[k];
-   pr[k]=z>r?Math.min(z,r+d/p.nc):Math.max(z,r-d/p.nf);
-  }
- });
+ const each=fn=>P.forEach((p,pi)=>{const c=Math.cos(p.rot*D),s=Math.sin(p.rot*D);for(let j=0;j<N;j++)for(let i=0;i<N;i++){const dx=i*H-p.cx,dy=j*H-p.cy;fn(p,pi,j*N+i,dx*c+dy*s,-dx*s+dy*c)}});
+ each((p,pi,k,u,v)=>{if(pip(p.v,u,v))mask[k]=pi+1});
+ // entre dois platôs próximos o terreno vira uma rampa contínua de uma borda à outra, sem cavar uma vala entre eles
+ const PP=P.filter(p=>!p.wall).map(p=>({p,c:Math.cos(p.rot*D),s:Math.sin(p.rot*D)}));
+ for(let j=0;j<N;j++)for(let i=0;i<N;i++){const k=j*N+i;if(mask[k]||!PP.length)continue;const x=i*H,y=j*H,L=[];let z=pr[k];
+  for(const o of PP){const p=o.p,dx=x-p.cx,dy=y-p.cy,[qu,qv,d]=near(p.v,dx*o.c+dy*o.s,-dx*o.s+dy*o.c),r=refL(p,qu,qv);L.push({p,d,r,qx:p.cx+qu*o.c-qv*o.s-x,qy:p.cy+qu*o.s+qv*o.c-y});z=z>r?Math.min(z,r+d/p.nc):Math.max(z,r-d/p.nf)}
+  if(L.length>1){L.sort((a,b)=>a.d-b.d);const a=L[0],b=L.slice(1).find(q=>q.qx*a.qx+q.qy*a.qy<0);
+   if(b&&a.d+b.d<=Math.abs(a.r-b.r)*Math.max(a.p.nc,a.p.nf,b.p.nc,b.p.nf)+3)z=(a.r*b.d+b.r*a.d)/(a.d+b.d||1)}
+  pr[k]=z}
+ each((p,pi,k,u,v)=>{if(mask[k]===pi+1)pr[k]=refL(p,u,v)});
 }
 function vols(){let c=0,fl=0;for(let k=0;k<N*N;k++){const d=ex[k]-pr[k];if(d>0)c+=d;else fl-=d}return{cut:c*H*H,fill:fl*H*H}}
 function zOut(x,y,nx,ny){const d=H*1.3,X=clamp(x+nx*d,0,S),Y=clamp(y+ny*d,0,S);return bil(pr,X,Y)}
@@ -358,7 +361,9 @@ function wallSegs(p){
    if(mx<0||mx>S||my<0||my>S)continue;
    const ii=clamp(Math.round((mx-nx*H*.6)/H),0,N-1),jj=clamp(Math.round((my-ny*H*.6)/H),0,N-1),mk=mask[jj*N+ii];
    if(mk&&mk!==pi)continue;
-   const zo=zOut(mx,my,nx,ny),h=Math.abs(zo-refW(p,mx,my));hm=Math.max(hm,h);
+   const zo=zOut(mx,my,nx,ny),rr=refW(p,mx,my),h=Math.abs(zo-rr);
+   if(!p.wall){const io=clamp(Math.round((mx+nx*H*.6)/H),0,N-1),jo=clamp(Math.round((my+ny*H*.6)/H),0,N-1),mo=mask[jo*N+io];if(!mo||mo===pi)continue}
+   hm=Math.max(hm,h);
    if(h>.1){const x0=a[0]+(b[0]-a[0])*u0,y0=a[1]+(b[1]-a[1])*u0,x1=a[0]+(b[0]-a[0])*u1,y1=a[1]+(b[1]-a[1])*u1;out.push([x0,y0,x1,y1,zOut(x0,y0,nx,ny),zOut(x1,y1,nx,ny)])}}}
  return{out,hm};
 }
@@ -413,8 +418,9 @@ $('#vdel').onclick=()=>{const p=P[sel];if(p&&selV>=0&&p.v.length>3){p.v.splice(s
 $('#ediv').onclick=()=>{const p=P[sel];if(p&&selE>=0){const a=p.v[selE],b=p.v[(selE+1)%p.v.length];p.v.splice(selE+1,0,[(a[0]+b[0])/2,(a[1]+b[1])/2]);selV=selE+1;selE=-1;syncUI();update()}};
 $('#vrect').onclick=()=>{const p=P[sel];if(!p)return;const b=bbox(p);recenter(p);p.v=rect(b.w,b.l);p.o=[clamp(p.o[0],-b.w/2,b.w/2),clamp(p.o[1],-b.l/2,b.l/2)];selV=selE=-1;syncUI();update()};
 function wallinfo(){
- const p=P[sel],el=$('#winfo');if(!p||!p.wall){el.textContent='';return}
+ const p=P[sel],el=$('#winfo');if(!p){el.textContent='';return}
  const hm=wallSegs(p).hm;
+ if(!p.wall){el.textContent=hm>.1?`Este platô encosta em outro platô sem espaço para talude: o desnível de até ${f(hm)} m aparece como muro e precisa ser resolvido com muro ou escada.`:'';return}
  el.textContent=hm>.1?`Altura máxima do muro: ${f(hm)} m. Em muro de gravidade, a base mede cerca de 40 a 50 % da altura (${f(.4*hm,1)} a ${f(.5*hm,1)} m).${hm>3?' Acima de 3 m peça projeto estrutural.':''}`:'Não há diferença de nível nas bordas, então o muro não é necessário aqui.';
 }
 function slopeinfo(){
@@ -611,9 +617,9 @@ function drawPlan(cv=plan){
   if(tech){path();c.fillStyle=C.panel;c.globalAlpha=.75;c.fill();c.globalAlpha=1}
   c.save();path();c.clip();drawDrain(c,p,h,ink,tech?'i = ':'');c.restore();
   path();c.strokeStyle=ink;c.lineWidth=tech?1.8:i===sel?2.5:1.2;c.stroke();
-  if(p.wall){const segs=wallSegs(p).out;c.lineCap='butt';
+  {const segs=wallSegs(p).out;if(segs.length){c.lineCap='butt';
    const band=(w,col)=>{c.strokeStyle=col;c.lineWidth=w;for(const g of segs){c.beginPath();c.moveTo(X(g[0]),Y(g[1]));c.lineTo(X(g[2]),Y(g[3]));c.stroke()}};
-   if(tech){const w=Math.max(4,.3*s);band(w,C.ink);band(w-2.4,C.panel)}else{c.lineCap='round';band(5,C.ink);c.lineCap='butt'}}
+   if(tech){const w=Math.max(4,.3*s);band(w,C.ink);band(w-2.4,C.panel)}else{c.lineCap='round';band(5,C.ink);c.lineCap='butt'}}}
  });
  c.restore();
  c.strokeStyle=C.line;c.lineWidth=1;c.strokeRect(X(0),Y(S),S*s,S*s);
@@ -712,7 +718,7 @@ function drawIso(cv=iso){
   if(Math.max(...xs)<-2||Math.min(...xs)>W+2||Math.max(...ys)<-2||Math.min(...ys)>Hh+2)continue;
   const k=(j*g+g/2|0)*N+(i*g+g/2|0),q=proj(i*cs+cs/2,j*cs+cs/2,pr[k]);polys.push({d:q[2],t:0,i,j,k});dep[j*M+i]=q[2];
  }
- for(const p of P)if(p.wall)for(const s of wallSegs(p).out){const a=[s[0],s[1]],b=[s[2],s[3]],ra=refW(p,...a),rb=refW(p,...b),ea=s[4],eb=s[5],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,q=proj(mx,my,(ra+rb+ea+eb)/4);
+ for(const p of P)for(const s of wallSegs(p).out){const a=[s[0],s[1]],b=[s[2],s[3]],ra=refW(p,...a),rb=refW(p,...b),ea=s[4],eb=s[5],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,q=proj(mx,my,(ra+rb+ea+eb)/4);
   const nx=b[1]-a[1],ny=-(b[0]-a[0]),nl=Math.hypot(nx,ny)||1;polys.push({d:q[2]-.3,t:1,pts:[proj(...a,Math.max(ra,ea)),proj(...b,Math.max(rb,eb)),proj(...b,Math.min(rb,eb)),proj(...a,Math.min(ra,ea))],sh:.6+.35*Math.abs(nx/nl*LIGHT[0]+ny/nl*LIGHT[1])})}
  polys.sort((a,b)=>b.d-a.d);
  const bk=new Map(),put=(x1,y1,z1,x2,y2,z2,col,w)=>{const ci=clamp(Math.floor((x1+x2)/2/cs),0,M-1),cj=clamp(Math.floor((y1+y2)/2/cs),0,M-1);let key=cj*M+ci,bd=1e18;
@@ -729,7 +735,7 @@ function drawIso(cv=iso){
    add(m1,[P1[0],P1[1],pr[k1]]);
    if(m1!==m2){const lb=Math.max(m1,m2),q=P[lb-1],in1=m1===lb;let lo=0,hi=1;
     for(let it=0;it<14;it++){const m=(lo+hi)/2;(pip(q.v,...toL(q,P1[0]+(P2[0]-P1[0])*m,P1[1]+(P2[1]-P1[1])*m))===in1)?lo=m:hi=m}
-    const t=(lo+hi)/2,X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],zi=refW(q,...X),zo=q.wall?pr[in1?k2:k1]:zi;
+    const t=(lo+hi)/2,X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t],zi=refW(q,...X),lo2=in1?m2:m1,zo=lo2?refW(P[lo2-1],...X):q.wall?pr[in1?k2:k1]:zi;
     add(m1,[X[0],X[1],m1===lb?zi:zo]);add(m2,[X[0],X[1],m2===lb?zi:zo])}}
   // três ou mais regiões: todas se encontram num ponto central, para não sobrar buraco no meio da célula
   let hub=null;if(parts.size>2){const cr=[...parts.values()].flat().filter(q=>!sq.some(c=>c[0]===q[0]&&c[1]===q[1]));hub=[x0+cs/2,y0+cs/2,cr.reduce((s,q)=>s+q[2],0)/(cr.length||1)]}
