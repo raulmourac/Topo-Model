@@ -262,7 +262,8 @@ const tal=n=>{const a=Math.atan(1/n)/D;return`${f(100/n,0)} % · ${f(a,1)}° · 
 const COMP=['N','NE','L','SE','S','SO','O','NO'],comp=a=>COMP[Math.round(n360(a+NORTH)/45)%8];
 
 /* ---------- formas de caimento e faixas do livro (tabela "Minimum and Maximum Slope") ---------- */
-const FORMS={plano:'Uma água (plano inclinado)',cumeeira:'Duas águas, cumeeira no centro',calha:'Duas águas, calha no centro',alto:'Quatro águas, ponto alto no centro',ralo:'Funil para um ralo no centro'};
+const slopeOf=p=>p.form==='nivel'?0:p.s;
+const FORMS={nivel:'Plano horizontal (sem caimento)',plano:'Uma água (plano inclinado)',cumeeira:'Duas águas, cumeeira no centro',calha:'Duas águas, calha no centro',alto:'Quatro águas, ponto alto no centro',ralo:'Funil para um ralo no centro'};
 const USO={livre:['Sem verificação',1,null],estar:['Área de estar / praça',1,2],servico:['Área de serviço',1,8],estac:['Estacionamento',1,5],passeio:['Passeio (sentido transversal)',1,4],gramado:['Gramado',1,25],brincar:['Gramado para brincar',1,5],futebol:['Campo de futebol',.5,1],canteiro:['Canteiro de plantio',.5,10]};
 const REV={nenhum:['Sem revestimento definido',0],serrada:['Pedra serrada ou flameada',1],rachada:['Pedra rachada (bruta)',2],concreto:['Concreto moldado ou placas',1.5],asfalto:['Asfalto',1.5],brita:['Brita compactada',1.5],concregrama:['Concregrama',1.5]};
 
@@ -272,6 +273,7 @@ function toW(p,u,v){const c=Math.cos(p.rot*D),s=Math.sin(p.rot*D);return[p.cx+u*
 function toL(p,x,y){const c=Math.cos(p.rot*D),s=Math.sin(p.rot*D),dx=x-p.cx,dy=y-p.cy;return[dx*c+dy*s,-dx*s+dy*c]}
 function refL(p,u,v){
  const o=p.o||[0,0];u-=o[0];v-=o[1];
+ if(p.form==='nivel')return p.z;
  const sl=p.s/100,m=Math.max(Math.abs(u),Math.abs(v));
  if(p.form==='alto')return p.z-sl*m;
  if(p.form==='ralo')return p.z+sl*m;
@@ -348,13 +350,16 @@ function grade(){
  });
 }
 function vols(){let c=0,fl=0;for(let k=0;k<N*N;k++){const d=ex[k]-pr[k];if(d>0)c+=d;else fl-=d}return{cut:c*H*H,fill:fl*H*H}}
+function zOut(x,y,nx,ny){const d=H*1.3,X=clamp(x+nx*d,0,S),Y=clamp(y+ny*d,0,S);return bil(pr,X,Y)}
 function wallSegs(p){
- const q=p.v.map(([u,v])=>toW(p,u,v)),out=[];let hm=0;q.push(q[0]);
- for(let e=0;e<q.length-1;e++){const a=q[e],b=q[e+1],n=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/.5));
+ const q=p.v.map(([u,v])=>toW(p,u,v)),out=[],pi=P.indexOf(p)+1,sg=sarea(p.v)>0?1:-1;let hm=0;q.push(q[0]);
+ for(let e=0;e<q.length-1;e++){const a=q[e],b=q[e+1],len=Math.hypot(b[0]-a[0],b[1]-a[1])||1,nx=(b[1]-a[1])/len*sg,ny=-(b[0]-a[0])/len*sg,n=Math.max(1,Math.ceil(len/.5));
   for(let k=0;k<n;k++){const u0=k/n,u1=(k+1)/n,um=(u0+u1)/2,mx=a[0]+(b[0]-a[0])*um,my=a[1]+(b[1]-a[1])*um;
    if(mx<0||mx>S||my<0||my>S)continue;
-   const h=Math.abs(zEx(mx,my)-refW(p,mx,my));hm=Math.max(hm,h);
-   if(h>.1)out.push([a[0]+(b[0]-a[0])*u0,a[1]+(b[1]-a[1])*u0,a[0]+(b[0]-a[0])*u1,a[1]+(b[1]-a[1])*u1]);}}
+   const ii=clamp(Math.round((mx-nx*H*.6)/H),0,N-1),jj=clamp(Math.round((my-ny*H*.6)/H),0,N-1),mk=mask[jj*N+ii];
+   if(mk&&mk!==pi)continue;
+   const zo=zOut(mx,my,nx,ny),h=Math.abs(zo-refW(p,mx,my));hm=Math.max(hm,h);
+   if(h>.1){const x0=a[0]+(b[0]-a[0])*u0,y0=a[1]+(b[1]-a[1])*u0,x1=a[0]+(b[0]-a[0])*u1,y1=a[1]+(b[1]-a[1])*u1;out.push([x0,y0,x1,y1,zOut(x0,y0,nx,ny),zOut(x1,y1,nx,ny)])}}}
  return{out,hm};
 }
 
@@ -415,14 +420,15 @@ function wallinfo(){
 function slopeinfo(){
  const p=P[sel],el=$('#sinfo'),g=$('#ginfo');if(!p){el.textContent=g.textContent='';return}
  const {a,per}=area(p);g.textContent=`Área ${f(a,1)} m² · perímetro ${f(per,1)} m · ${p.v.length} vértices.`;
- const [un,umin,umax]=USO[p.uso],[rn,rmin]=REV[p.rev],mn=Math.max(umin,rmin),s=p.s;
+ const [un,umin,umax]=USO[p.uso],[rn,rmin]=REV[p.rev],mn=Math.max(umin,rmin),s=slopeOf(p);
  const zs=p.v.map(([u,v])=>refL(p,u,v));if(p.form==='alto'||p.form==='ralo')zs.push(p.z);
  let msg='',bad=false;
- if(s<mn){bad=true;msg=`Caimento abaixo do mínimo de ${f(mn,1)} %`+(p.uso==='livre'&&rmin===0?': a água pode empoçar.':` (${rmin>umin?rn.toLowerCase():un.toLowerCase()}).`)}
+ if(p.form==='nivel'){bad=p.uso!=='livre';msg='Plano horizontal: a água não escorre sozinha. Funciona em superfície permeável (gramado, brita) ou com drenagem própria'+(bad?`; para ${un.toLowerCase()} o livro pede ao menos ${f(mn,1)} %.`:'.')}
+ else if(s<mn){bad=true;msg=`Caimento abaixo do mínimo de ${f(mn,1)} %`+(p.uso==='livre'&&rmin===0?': a água pode empoçar.':` (${rmin>umin?rn.toLowerCase():un.toLowerCase()}).`)}
  else if(umax!=null&&s>umax){bad=true;msg=`Caimento acima do máximo de ${f(umax,0)} % para ${un.toLowerCase()}.`}
  else msg=p.uso==='livre'?`Caimento de ${f(s,1)} %, acima do mínimo de ${f(mn,1)} %.`:`Dentro da faixa de ${f(mn,1)} a ${f(umax,umax%1?1:0)} % para ${un.toLowerCase()}.`;
  const extra=p.form==='ralo'?` Nas diagonais, por onde a água chega ao ralo, o caimento cai para ${f(s/Math.SQRT2,1)} %.`:p.form==='alto'?` Nas diagonais (espigões) o caimento é de ${f(s/Math.SQRT2,1)} %.`:'';
- const zc=Math.round(p.z/iv)*iv,flat=p.s===0&&Math.abs(p.z-zc)<5e-4;
+ const zc=Math.round(p.z/iv)*iv,flat=slopeOf(p)===0&&Math.abs(p.z-zc)<5e-4;
  const coin=flat?` <span class="warn">O platô está plano na cota exata da curva ${f(zc,iv<1?2:0)}: ela não se divide, corre em duas linhas paralelas em volta dele. Para evitar, o livro sugere ajustar 1 cm (ex.: ${f(zc+.01,2)}).</span>`:'';
  el.innerHTML=`<span class="${bad?'warn':''}">${msg}</span>${extra}${coin} Ponto mais alto ${f(Math.max(...zs))} m, mais baixo ${f(Math.min(...zs))} m.`;
 }
@@ -434,8 +440,8 @@ function syncUI(){
  const rz=$('#r_z');if(p.z<+rz.min)rz.min=Math.floor(p.z);if(p.z>+rz.max)rz.max=Math.ceil(p.z);
  defs.forEach(d=>{const v=getVal(d.k);$('#r_'+d.k).value=v;setIn('n_'+d.k,f(v,d.d));$('#x_'+d.k).textContent=d.x?d.x(v):''});
  ['form','uso','rev'].forEach(k=>$('#r_'+k).value=p[k]);
- {const[x,y]=toW(p,...p.o);setIn('ox',f(x,2));setIn('oy',f(y,2));$('#ohint').textContent={plano:'Onde a cota é medida. Arraste o ponto na planta.',cumeeira:'Por onde passa a cumeeira. Arraste o ponto na planta.',calha:'Por onde passa a calha. Arraste o ponto na planta.',alto:'Onde fica o ponto alto. Arraste o ponto na planta.',ralo:'Onde fica o ralo. Arraste o ponto na planta.'}[p.form];$('#oc').disabled=Math.hypot(...p.o)<1e-6}
- $('#w_az').classList.toggle('off',p.form==='alto'||p.form==='ralo');
+ {const[x,y]=toW(p,...p.o);setIn('ox',f(x,2));setIn('oy',f(y,2));$('#ohint').textContent={nivel:'',plano:'Onde a cota é medida. Arraste o ponto na planta.',cumeeira:'Por onde passa a cumeeira. Arraste o ponto na planta.',calha:'Por onde passa a calha. Arraste o ponto na planta.',alto:'Onde fica o ponto alto. Arraste o ponto na planta.',ralo:'Onde fica o ralo. Arraste o ponto na planta.'}[p.form];$('#oc').disabled=Math.hypot(...p.o)<1e-6}
+ const niv=p.form==='nivel';$('#w_az').classList.toggle('off',niv||p.form==='alto'||p.form==='ralo');$('#w_s').classList.toggle('off',niv);document.querySelectorAll('#pc1 .pt,#pc1 .pt2,#ohint').forEach(e=>e.classList.toggle('off',niv));
  $('#w_az label').textContent=p.form==='plano'?'Direção do caimento':'Direção das águas';
  $('#r_wall').checked=p.wall;$('#r_nc').disabled=$('#r_nf').disabled=$('#n_nc').disabled=$('#n_nf').disabled=p.wall;
  $('#vdel').disabled=!(selV>=0&&p.v.length>3);$('#ediv').disabled=!(selE>=0);
@@ -505,7 +511,7 @@ function halo(c,t,x,y,col){c.lineWidth=3;c.strokeStyle=C.panel;c.strokeText(t,x,
 function offLine(ln,L,side,px){
  if(!side||ln.length<3)return ln;const m=ln.length>>1,a=ln[Math.max(0,m-1)],b=ln[Math.min(ln.length-1,m+1)],tl=Math.hypot(b[0]-a[0],b[1]-a[1])||1,nx=-(b[1]-a[1])/tl,ny=(b[0]-a[0])/tl;
  const up=bil(pr,ln[m][0]+nx*.4,ln[m][1]+ny*.4)>L,sg=(up?1:-1)*side*px;
- const fl=P.filter(p=>p.s===0&&Math.abs(p.z-L)<5e-4);
+ const fl=P.filter(p=>slopeOf(p)===0&&Math.abs(p.z-L)<5e-4);
  return ln.map((q,i)=>{let d=1e9;for(const p of fl){const[u,v]=toL(p,q[0],q[1]);d=Math.min(d,pip(p.v,u,v)?0:near(p.v,u,v)[2])}const w=clamp(1-(d-1)/3,0,1)*sg;if(!w)return q;const a=ln[Math.max(0,i-1)],b=ln[Math.min(ln.length-1,i+1)],t=Math.hypot(b[0]-a[0],b[1]-a[1])||1;return[q[0]-(b[1]-a[1])/t*w,q[1]+(b[0]-a[0])/t*w]});
 }
 function drawLines(c,set,X,Y,col,dash,wMaj,wMin,pos,lab,s=1){
@@ -530,6 +536,7 @@ function handles(p){
 function arrow(c,x1,y1,x2,y2){const a=Math.atan2(y2-y1,x2-x1);c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();c.beginPath();c.moveTo(x2,y2);c.lineTo(x2-8*Math.cos(a-.4),y2-8*Math.sin(a-.4));c.lineTo(x2-8*Math.cos(a+.4),y2-8*Math.sin(a+.4));c.closePath();c.fill()}
 function drawDrain(c,p,h,col,pre){
  const[ox,oy]=h.O,[fx,fy]=h.F,L=ARW,G=[-fy,fx],lin=p.form==='plano'||p.form==='cumeeira'||p.form==='calha';
+ if(p.form==='nivel'){c.font=FONT;c.textAlign='left';c.textBaseline='middle';halo(c,pre?'i = 0 %':'nível',ox+8,oy+12,col);c.textBaseline='alphabetic';return}
  c.strokeStyle=c.fillStyle=col;c.lineWidth=1.5;
  if(p.form==='plano')arrow(c,ox,oy,ox+fx*L,oy+fy*L);
  else if(lin){
@@ -705,20 +712,23 @@ function drawIso(cv=iso){
   if(Math.max(...xs)<-2||Math.min(...xs)>W+2||Math.max(...ys)<-2||Math.min(...ys)>Hh+2)continue;
   const k=(j*g+g/2|0)*N+(i*g+g/2|0),q=proj(i*cs+cs/2,j*cs+cs/2,pr[k]);polys.push({d:q[2],t:0,i,j,k});
  }
- for(const p of P)if(p.wall)for(const s of wallSegs(p).out){const a=[s[0],s[1]],b=[s[2],s[3]],ra=refW(p,...a),rb=refW(p,...b),ea=zEx(...a),eb=zEx(...b),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,q=proj(mx,my,(ra+rb+ea+eb)/4);
+ for(const p of P)if(p.wall)for(const s of wallSegs(p).out){const a=[s[0],s[1]],b=[s[2],s[3]],ra=refW(p,...a),rb=refW(p,...b),ea=s[4],eb=s[5],mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,q=proj(mx,my,(ra+rb+ea+eb)/4);
   const nx=b[1]-a[1],ny=-(b[0]-a[0]),nl=Math.hypot(nx,ny)||1;polys.push({d:q[2]-.3,t:1,pts:[proj(...a,Math.max(ra,ea)),proj(...b,Math.max(rb,eb)),proj(...b,Math.min(rb,eb)),proj(...a,Math.min(ra,ea))],sh:.6+.35*Math.abs(nx/nl*LIGHT[0]+ny/nl*LIGHT[1])})}
  polys.sort((a,b)=>b.d-a.d);
  const bk=new Map(),put=(x1,y1,z1,x2,y2,z2,col,w)=>{const ci=clamp(Math.floor((x1+x2)/2/cs),0,M-1),cj=clamp(Math.floor((y1+y2)/2/cs),0,M-1),key=cj*M+ci;if(!bk.has(key))bk.set(key,[]);bk.get(key).push([proj(x1,y1,z1),proj(x2,y2,z2),col,w])};
  for(const L of prC)for(const ln of L.lines)for(let i=1;i<ln.length;i++)put(ln[i-1][0],ln[i-1][1],L.z,ln[i][0],ln[i][1],L.z,C.prop,L.k%5===0?1.5:.7);
- {const L=Math.hypot(B.x-A.x,B.y-A.y),n=Math.max(2,Math.ceil(L/.5));for(let k=0;k<n;k++){const x1=A.x+(B.x-A.x)*k/n,y1=A.y+(B.y-A.y)*k/n,x2=A.x+(B.x-A.x)*(k+1)/n,y2=A.y+(B.y-A.y)*(k+1)/n;put(x1,y1,bil(pr,x1,y1)+.05,x2,y2,bil(pr,x2,y2)+.05,C.hd,1)}}
+ {const L=Math.hypot(B.x-A.x,B.y-A.y),n=Math.max(2,Math.ceil(L/.5));for(let k=0;k<n;k++){const x1=A.x+(B.x-A.x)*k/n,y1=A.y+(B.y-A.y)*k/n,x2=A.x+(B.x-A.x)*(k+1)/n,y2=A.y+(B.y-A.y)*(k+1)/n;put(x1,y1,bil(pr,x1,y1)+.05,x2,y2,bil(pr,x2,y2)+.05,'rgba(43,89,195,.35)',.7)}}
  // célula cortada pela borda do platô: divide-se pela aresta, para borda e muro saírem retos
  function splitCell(p,x0,y0){
+  const pid=P.indexOf(p)+1,i0=Math.round(x0/H),j0=Math.round(y0/H),nodes=[];
+  for(let dj=-1;dj<=g+1;dj++)for(let di=-1;di<=g+1;di++){const i=clamp(i0+di,0,N-1),j=clamp(j0+dj,0,N-1),k=j*N+i;if(mask[k]!==pid)nodes.push([i*H,j*H,pr[k]])}
+  const outZ=(x,y)=>{if(!nodes.length)return zEx(x,y);let sw=0,sz=0;for(const[nx,ny,nz]of nodes){const w=1/((nx-x)**2+(ny-y)**2+.05);sw+=w;sz+=w*nz}return sz/sw};
   const sq=[[x0,y0],[x0+cs,y0],[x0+cs,y0+cs],[x0,y0+cs]],[u,v]=toL(p,x0+cs/2,y0+cs/2),e=near(p.v,u,v)[3],A_=toW(p,...p.v[e]),B_=toW(p,...p.v[(e+1)%p.v.length]),sg=sarea(p.v)>0?1:-1;
   const sd=q=>((B_[0]-A_[0])*(q[1]-A_[1])-(B_[1]-A_[1])*(q[0]-A_[0]))*sg,ins=[],out=[];
   for(let n=0;n<4;n++){const P1=sq[n],P2=sq[(n+1)%4],f1=sd(P1),f2=sd(P2);(f1>=0?ins:out).push(P1);if((f1>=0)!==(f2>=0)){const t=f1/(f1-f2),X=[P1[0]+(P2[0]-P1[0])*t,P1[1]+(P2[1]-P1[1])*t];ins.push(X);out.push(X)}}
   for(const[poly,inside]of[[out,false],[ins,true]]){
    if(poly.length<3)continue;
-   const pts=poly.map(([x,y])=>{const xx=clamp(x,0,S),yy=clamp(y,0,S);return[xx,yy,inside?refW(p,xx,yy):p.wall?zEx(xx,yy):bil(pr,xx,yy)]});
+   const pts=poly.map(([x,y])=>{const xx=clamp(x,0,S),yy=clamp(y,0,S);return[xx,yy,inside?refW(p,xx,yy):outZ(xx,yy)]});
    const[o,q1,q2]=pts,ux=q1[0]-o[0],uy=q1[1]-o[1],uz=(q1[2]-o[2])*ve,wx=q2[0]-o[0],wy=q2[1]-o[1],wz=(q2[2]-o[2])*ve;
    let nx=uy*wz-uz*wy,ny=uz*wx-ux*wz,nz=ux*wy-uy*wx;if(nz<0){nx=-nx;ny=-ny;nz=-nz}const nl=Math.hypot(nx,ny,nz)||1;
    const lam=Math.max(0,(nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2])/nl);
@@ -752,7 +762,8 @@ function drawIso(cv=iso){
   const line=(idx,col,w,dash)=>{c.strokeStyle=col;c.lineWidth=w;c.setLineDash(dash);c.beginPath();pts.forEach((r,i)=>{const q=proj(r[0],r[1],r[idx]);i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1])});c.stroke();c.setLineDash([])};
   line(3,C.exist,1.3,[5,3]);line(2,C.prop,1.8,[]);
  }
- P.forEach((p,pi)=>{const q=p.v.map(([u,v])=>toW(p,u,v));q.push(q[0]);c.strokeStyle=C.hd;c.lineWidth=pi===sel?2.4:1.5;c.beginPath();let first=1;for(let e=0;e<q.length-1;e++){const a=q[e],b=q[e+1],n=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/.5));for(let k=0;k<=n;k++){const x=clamp(a[0]+(b[0]-a[0])*k/n,0,S),y=clamp(a[1]+(b[1]-a[1])*k/n,0,S),r=proj(x,y,refW(p,x,y)+.03);first?c.moveTo(r[0],r[1]):c.lineTo(r[0],r[1]);first=0}}c.stroke()});
+ c.globalAlpha=.55;P.forEach((p,pi)=>{const q=p.v.map(([u,v])=>toW(p,u,v));q.push(q[0]);c.strokeStyle=C.hd;c.lineWidth=pi===sel?1.4:.8;c.beginPath();let first=1;for(let e=0;e<q.length-1;e++){const a=q[e],b=q[e+1],n=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/.5));for(let k=0;k<=n;k++){const x=clamp(a[0]+(b[0]-a[0])*k/n,0,S),y=clamp(a[1]+(b[1]-a[1])*k/n,0,S),r=proj(x,y,refW(p,x,y)+.03);first?c.moveTo(r[0],r[1]):c.lineTo(r[0],r[1]);first=0}}c.stroke()});
+ c.globalAlpha=1;
  const nvx=-Math.sin(NORTH*D),nvy=Math.cos(NORTH*D),nq=proj(S/2+nvx*(S/2+4),S/2+nvy*(S/2+4),zt),nb=proj(S/2+nvx*(S/2+1),S/2+nvy*(S/2+1),zt);c.strokeStyle=c.fillStyle=C.ink;c.lineWidth=1.5;arrow(c,nb[0],nb[1],nq[0],nq[1]);c.font=BOLD;c.textAlign='center';c.fillText('N',nq[0]+(nq[0]-nb[0])*.6,nq[1]+(nq[1]-nb[1])*.6-2);
  const vw=COMP[Math.round(n360(isoTh+180+NORTH)/45)%8];
  $('#ist').textContent=`3D ${Math.abs(isoEl-35.26)<.5&&isoTh%90===45?'isométrico':'axonométrico'} · de ${vw}${isoK>1.01?` · zoom ${f(isoK,1)}×`:''}`;
